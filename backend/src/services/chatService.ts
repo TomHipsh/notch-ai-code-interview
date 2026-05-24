@@ -1,4 +1,6 @@
 import {ChatCompletionMessageParam} from 'openai/resources/chat/completions';
+import {strip} from 'node-emoji';
+import {z} from 'zod';
 import {config} from '../config';
 import {dataManager} from '../data_store/memoryDataManager';
 import {MessageEntity} from '../entities/message';
@@ -6,6 +8,19 @@ import {buildChatPromptMessages, UserChatMessage} from '../prompts/chat';
 import {openaiClient} from './openaiClient';
 import {selectUnusedSignatureEmoji} from './signatureEmojiPool';
 import {rateLatestUserSentiment} from './sentimentService';
+import {OpenAIResponseValidationError} from './openAIResponseValidationError';
+
+const assistantCompletionSchema = z.object({
+    choices: z.array(
+        z.object({
+            finish_reason: z.literal('stop'),
+            message: z.object({
+                role: z.literal('assistant'),
+                content: z.string().trim().min(1),
+            }).passthrough(),
+        }).passthrough(),
+    ).min(1),
+}).passthrough();
 
 export const createConversation = async (title?: string) => {
     return dataManager.createConversation({title});
@@ -43,21 +58,18 @@ export const createUserMessageAndAssistantReply = async (
 
     const conversationMessages = dataManager.getConversationMessages(conversationId);
     const signatureEmoji = selectUnusedSignatureEmoji(conversationMessages);
-    const sentimentScorePromise = rateLatestUserSentiment(conversationMessages).catch(() => undefined);
     const [assistantContent, sentimentScore] = await Promise.all([
         getAssistantResponse(conversationMessages, signatureEmoji),
-        sentimentScorePromise,
+        rateLatestUserSentiment(conversationMessages),
     ]);
     const signedAssistantContent = ensureSignedContent(assistantContent, signatureEmoji);
-    const scoredUserMessage = typeof sentimentScore === 'number'
-        ? await dataManager.upsertMessage({
-            id: userMessage.id,
-            conversationId,
-            role: 'user',
-            content: userMessage.content,
-            sentimentScore,
-        })
-        : userMessage;
+    const scoredUserMessage = await dataManager.upsertMessage({
+        id: userMessage.id,
+        conversationId,
+        role: 'user',
+        content: userMessage.content,
+        sentimentScore,
+    });
 
     const assistantMessage = await dataManager.upsertMessage({
         conversationId,
@@ -87,7 +99,19 @@ const getAssistantResponse = async (
         temperature: 0.7,
     });
 
-    return completion.choices[0]?.message.content?.trim() || `I am here to help. ${signatureEmoji}`;
+    const parsedCompletion = assistantCompletionSchema.safeParse(completion);
+
+    if (!parsedCompletion.success) {
+        throw new OpenAIResponseValidationError('Assistant response was not in the expected format');
+    }
+
+    const firstChoice = parsedCompletion.data.choices[0];
+
+    if (!firstChoice) {
+        throw new OpenAIResponseValidationError('Assistant response did not include a completion choice');
+    }
+
+    return firstChoice.message.content.trim();
 };
 
 const toPromptMessage = (message: MessageEntity): UserChatMessage => ({
@@ -96,11 +120,10 @@ const toPromptMessage = (message: MessageEntity): UserChatMessage => ({
 });
 
 const ensureSignedContent = (content: string, signatureEmoji: string): string => {
-    const trimmedContent = content.trim();
+    const strippedContent = strip(content, {preserveSpaces: false})
+        .replace(/[ \t]{2,}/g, ' ')
+        .trim();
+    const normalizedContent = strippedContent || 'I am here to help.';
 
-    if (trimmedContent.endsWith(signatureEmoji)) {
-        return trimmedContent;
-    }
-
-    return `${trimmedContent} ${signatureEmoji}`;
+    return `${normalizedContent} ${signatureEmoji}`;
 };

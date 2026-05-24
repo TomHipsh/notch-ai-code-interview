@@ -7,12 +7,37 @@ import {z} from 'zod';
 import {config} from '../config';
 import {MessageEntity} from '../entities/message';
 import {openaiClient} from './openaiClient';
+import {OpenAIResponseValidationError} from './openAIResponseValidationError';
 
 const RATE_USER_SENTIMENT_TOOL_NAME = 'rate_user_sentiment';
 
 const sentimentToolArgumentsSchema = z.object({
     sentimentScore: z.number().int().min(0).max(100),
 });
+
+const sentimentCompletionSchema = z.object({
+    choices: z.array(
+        z.object({
+            finish_reason: z.string().nullable(),
+            message: z.object({
+                role: z.literal('assistant'),
+                tool_calls: z.array(
+                    z.object({
+                        type: z.literal('function'),
+                        function: z.object({
+                            name: z.literal(RATE_USER_SENTIMENT_TOOL_NAME),
+                            arguments: z.string().min(1),
+                        }).passthrough(),
+                    }).passthrough(),
+                ).optional(),
+                function_call: z.object({
+                    name: z.literal(RATE_USER_SENTIMENT_TOOL_NAME),
+                    arguments: z.string().min(1),
+                }).optional(),
+            }).passthrough(),
+        }).passthrough(),
+    ).min(1),
+}).passthrough();
 
 const sentimentTools: ChatCompletionTool[] = [
     {
@@ -54,19 +79,43 @@ export const rateLatestUserSentiment = async (messages: MessageEntity[]): Promis
         temperature: 0,
     });
 
-    const toolCall = completion.choices[0]?.message.tool_calls?.find(
-        (call) => call.type === 'function' && call.function.name === RATE_USER_SENTIMENT_TOOL_NAME,
-    );
+    const parsedCompletion = sentimentCompletionSchema.safeParse(completion);
 
-    if (!toolCall) {
-        throw new Error('Sentiment tool call was not returned');
+    if (!parsedCompletion.success) {
+        throw new OpenAIResponseValidationError('Sentiment response was not in the expected tool-call format');
     }
 
-    const parsedArguments = sentimentToolArgumentsSchema.parse(
-        JSON.parse(toolCall.function.arguments),
-    );
+    const firstChoice = parsedCompletion.data.choices[0];
 
-    return parsedArguments.sentimentScore;
+    if (!firstChoice) {
+        throw new OpenAIResponseValidationError('Sentiment response did not include a completion choice');
+    }
+
+    const toolCall = firstChoice.message.tool_calls?.find(
+        (call) => call.type === 'function' && call.function.name === RATE_USER_SENTIMENT_TOOL_NAME,
+    );
+    const toolArgumentsJson = toolCall?.function.arguments ?? firstChoice.message.function_call?.arguments;
+
+    if (!toolArgumentsJson) {
+        throw new OpenAIResponseValidationError('Sentiment tool call was not returned');
+    }
+
+    const toolArguments = safeParseJson(toolArgumentsJson);
+    const parsedArguments = sentimentToolArgumentsSchema.safeParse(toolArguments);
+
+    if (!parsedArguments.success) {
+        throw new OpenAIResponseValidationError('Sentiment tool arguments were not in the expected format');
+    }
+
+    return parsedArguments.data.sentimentScore;
+};
+
+const safeParseJson = (value: string): unknown => {
+    try {
+        return JSON.parse(value);
+    } catch {
+        throw new OpenAIResponseValidationError('Sentiment tool arguments were not valid JSON');
+    }
 };
 
 const buildSentimentPromptMessages = (messages: MessageEntity[]): ChatCompletionMessageParam[] => [

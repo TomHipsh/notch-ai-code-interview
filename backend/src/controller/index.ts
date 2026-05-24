@@ -13,6 +13,7 @@ import {
 } from '../schemas/conversation';
 import {dataManager} from '../data_store/memoryDataManager';
 import {SignatureEmojiPoolExhaustedError} from '../services/signatureEmojiPool';
+import {OpenAIResponseValidationError} from '../services/openAIResponseValidationError';
 
 const router = express.Router();
 router.get('/healthCheck', (_req, res) => {
@@ -114,6 +115,13 @@ router.use((error: unknown, _req: express.Request, res: express.Response, next: 
 
   if (error instanceof SignatureEmojiPoolExhaustedError) {
     res.status(409).json({
+      message: error.message,
+    });
+    return;
+  }
+
+  if (error instanceof OpenAIResponseValidationError) {
+    res.status(502).json({
       message: error.message,
     });
     return;
