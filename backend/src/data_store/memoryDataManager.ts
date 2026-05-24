@@ -1,6 +1,6 @@
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {ConversationEntity, CreateConversationInput} from '../entities/conversation';
+import {ConversationEntity, CreateConversationInput, UpdateConversationInput} from '../entities/conversation';
 import {MessageEntity, UpsertMessageInput} from '../entities/message';
 import {JsonCollectionFileStore, JsonFileStore} from './jsonFileStore';
 
@@ -67,6 +67,23 @@ class MemoryDataManager {
         await this.messageStore.save(conversation.id, []);
 
         return conversation;
+    }
+
+    async updateConversation(
+        conversationId: string,
+        input: UpdateConversationInput,
+    ): Promise<ConversationEntity> {
+        const conversation = this.getRequiredConversation(conversationId);
+        const updatedConversation: ConversationEntity = {
+            ...conversation,
+            title: input.title.trim(),
+            updatedAt: new Date().toISOString(),
+        };
+
+        this.conversationsById.set(updatedConversation.id, updatedConversation);
+        await this.conversationStore.save(updatedConversation);
+
+        return updatedConversation;
     }
 
     async upsertMessage(input: UpsertMessageInput): Promise<MessageEntity> {

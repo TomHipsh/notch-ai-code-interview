@@ -32,6 +32,10 @@ interface CreateMessageResponse {
     assistantMessage: ChatMessage;
 }
 
+interface UpdateConversationResponse {
+    conversation: Conversation;
+}
+
 const requestJson = async <T>(url: string, init?: RequestInit): Promise<T> => {
     const response = await fetch(url, {
         ...init,
@@ -64,6 +68,18 @@ export const createConversation = async (): Promise<ConversationResponse> => {
 
 export const getConversation = async (conversationId: string): Promise<ConversationResponse> => {
     return requestJson<ConversationResponse>(`/api/conversations/${conversationId}`);
+};
+
+export const updateConversationTitle = async (
+    conversationId: string,
+    title: string,
+): Promise<Conversation> => {
+    const response = await requestJson<UpdateConversationResponse>(`/api/conversations/${conversationId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({title}),
+    });
+
+    return response.conversation;
 };
 
 export const createConversationMessage = async (

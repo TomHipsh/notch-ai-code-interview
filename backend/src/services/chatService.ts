@@ -11,6 +11,10 @@ export const createConversation = async (title?: string) => {
     return dataManager.createConversation({title});
 };
 
+export const updateConversationTitle = async (conversationId: string, title: string) => {
+    return dataManager.updateConversation(conversationId, {title});
+};
+
 export const getConversationWithMessages = (conversationId: string) => {
     const conversation = dataManager.getConversation(conversationId);
 

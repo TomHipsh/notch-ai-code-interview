@@ -4,10 +4,12 @@ import {
   createConversation,
   createUserMessageAndAssistantReply,
   getConversationWithMessages,
+  updateConversationTitle,
 } from '../services/chatService';
 import {
   createConversationMessageSchema,
   createConversationSchema,
+  updateConversationSchema,
 } from '../schemas/conversation';
 import {dataManager} from '../data_store/memoryDataManager';
 import {SignatureEmojiPoolExhaustedError} from '../services/signatureEmojiPool';
@@ -46,6 +48,22 @@ router.get('/api/conversations/:conversationId', (req, res) => {
   }
 
   res.json(conversationWithMessages);
+});
+
+router.patch('/api/conversations/:conversationId', async (req, res, next) => {
+  try {
+    if (!dataManager.getConversation(req.params.conversationId)) {
+      res.status(404).json({message: 'Conversation was not found'});
+      return;
+    }
+
+    const body = updateConversationSchema.parse(req.body);
+    const conversation = await updateConversationTitle(req.params.conversationId, body.title);
+
+    res.json({conversation});
+  } catch (error) {
+    next(error);
+  }
 });
 
 router.get('/api/conversations/:conversationId/messages', (req, res) => {

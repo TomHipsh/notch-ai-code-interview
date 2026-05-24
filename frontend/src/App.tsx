@@ -10,6 +10,7 @@ import {
     createConversationMessage,
     getConversation,
     listConversations,
+    updateConversationTitle,
 } from "./api";
 
 const AppShell = styled.main`
@@ -114,11 +115,19 @@ const ChatPanel = styled.section`
 `;
 
 const ChatHeader = styled.header`
-    display: grid;
-    gap: 2px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
     padding: 18px 22px;
     border-bottom: 1px solid #dde4ee;
     background: #ffffff;
+`;
+
+const ChatHeaderText = styled.div`
+    display: grid;
+    gap: 2px;
+    min-width: 0;
 `;
 
 const ChatTitle = styled.h2`
@@ -126,11 +135,55 @@ const ChatTitle = styled.h2`
     font-size: 18px;
     font-weight: 700;
     letter-spacing: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 `;
 
 const ChatSubtitle = styled.p`
     color: #64748b;
     font-size: 13px;
+`;
+
+const HeaderActions = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+`;
+
+const HeaderButton = styled.button`
+    min-height: 34px;
+    padding: 0 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #172033;
+    cursor: pointer;
+    font-weight: 700;
+
+    &:disabled {
+        cursor: not-allowed;
+        opacity: 0.6;
+    }
+`;
+
+const IconButton = styled(HeaderButton)`
+    width: 34px;
+    min-width: 34px;
+    padding: 0;
+    font-size: 16px;
+`;
+
+const TitleInput = styled.input`
+    width: min(520px, 100%);
+    min-height: 36px;
+    padding: 0 10px;
+    border: 1px solid #9fb4cb;
+    border-radius: 8px;
+    color: #0f172a;
+    font-size: 18px;
+    font-weight: 700;
 `;
 
 const ChatMessagesWrapper = styled.div`
@@ -204,11 +257,15 @@ function App() {
     const [isLoadingConversations, setIsLoadingConversations] = useState(true);
     const [isCreatingConversation, setIsCreatingConversation] = useState(false);
     const [isSendingMessage, setIsSendingMessage] = useState(false);
+    const [isEditingTitle, setIsEditingTitle] = useState(false);
+    const [isSavingTitle, setIsSavingTitle] = useState(false);
+    const [draftTitle, setDraftTitle] = useState('');
     const [errorMessage, setErrorMessage] = useState<string>();
 
     const selectedConversation = conversations.find(
         (conversation) => conversation.id === selectedConversationId,
     );
+    const selectedConversationTitle = selectedConversation?.title;
 
     const orderedMessages = useMemo(() => {
         return [...chatMessages].sort((left, right) => left.timestamp.localeCompare(right.timestamp));
@@ -249,6 +306,8 @@ function App() {
     useEffect(() => {
         if (!selectedConversationId) {
             setChatMessages([]);
+            setIsEditingTitle(false);
+            setDraftTitle('');
             return;
         }
 
@@ -275,6 +334,15 @@ function App() {
             isMounted = false;
         };
     }, [selectedConversationId]);
+
+    useEffect(() => {
+        if (!selectedConversationId || !selectedConversationTitle) {
+            return;
+        }
+
+        setDraftTitle(selectedConversationTitle);
+        setIsEditingTitle(false);
+    }, [selectedConversationId, selectedConversationTitle]);
 
     const handleCreateConversation = async () => {
         setIsCreatingConversation(true);
@@ -340,6 +408,33 @@ function App() {
         }
     };
 
+    const handleSaveTitle = async () => {
+        const title = draftTitle.trim();
+
+        if (!selectedConversation || !title || isSavingTitle) {
+            return;
+        }
+
+        setIsSavingTitle(true);
+        setErrorMessage(undefined);
+
+        try {
+            const updatedConversation = await updateConversationTitle(selectedConversation.id, title);
+            setConversations((currentConversations) =>
+                currentConversations
+                    .map((conversation) =>
+                        conversation.id === updatedConversation.id ? updatedConversation : conversation,
+                    )
+                    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
+            );
+            setIsEditingTitle(false);
+        } catch (error) {
+            setErrorMessage(error instanceof Error ? error.message : 'Failed to save conversation name');
+        } finally {
+            setIsSavingTitle(false);
+        }
+    };
+
     return (
         <AppShell>
             <Sidebar>
@@ -374,12 +469,55 @@ function App() {
 
             <ChatPanel>
                 <ChatHeader>
-                    <ChatTitle>{selectedConversation?.title ?? 'Select a conversation'}</ChatTitle>
-                    <ChatSubtitle>
-                        {selectedConversation
-                            ? `${selectedConversation.messageIds.length} saved messages`
-                            : 'Create or choose a conversation'}
-                    </ChatSubtitle>
+                    <ChatHeaderText>
+                        {isEditingTitle && selectedConversation ? (
+                            <TitleInput
+                                value={draftTitle}
+                                disabled={isSavingTitle}
+                                autoFocus
+                                onChange={(event) => setDraftTitle(event.target.value)}
+                                onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                        void handleSaveTitle();
+                                    }
+
+                                    if (event.key === 'Escape') {
+                                        setDraftTitle(selectedConversation.title);
+                                        setIsEditingTitle(false);
+                                    }
+                                }}
+                            />
+                        ) : (
+                            <ChatTitle>{selectedConversation?.title ?? 'Select a conversation'}</ChatTitle>
+                        )}
+                        <ChatSubtitle>
+                            {selectedConversation
+                                ? `${selectedConversation.messageIds.length} saved messages`
+                                : 'Create or choose a conversation'}
+                        </ChatSubtitle>
+                    </ChatHeaderText>
+                    {selectedConversation && (
+                        <HeaderActions>
+                            {isEditingTitle ? (
+                                <HeaderButton
+                                    type="button"
+                                    disabled={!draftTitle.trim() || isSavingTitle}
+                                    onClick={handleSaveTitle}
+                                >
+                                    {isSavingTitle ? 'Saving' : 'Save'}
+                                </HeaderButton>
+                            ) : (
+                                <IconButton
+                                    type="button"
+                                    aria-label="Edit conversation name"
+                                    title="Edit conversation name"
+                                    onClick={() => setIsEditingTitle(true)}
+                                >
+                                    ✎
+                                </IconButton>
+                            )}
+                        </HeaderActions>
+                    )}
                 </ChatHeader>
 
                 <ChatMessagesWrapper>

@@ -9,3 +9,7 @@ export interface ConversationEntity {
 export interface CreateConversationInput {
     title?: string;
 }
+
+export interface UpdateConversationInput {
+    title: string;
+}
