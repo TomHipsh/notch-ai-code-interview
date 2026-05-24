@@ -1,11 +1,12 @@
-import fs from 'node:fs';
+import path from 'node:path';
 import dotenv from 'dotenv';
 import {z} from "zod";
 
-const configFile = fs.readFileSync('local.env').toString();
-const configUnparsed = dotenv.parse(configFile);
+dotenv.config({path: path.resolve(__dirname, '..', '.env')});
 
 const configSchema = z.object({
-    PORT: z.number({coerce: true})
+    PORT: z.number({coerce: true}).default(3000),
+    OPENAI_API_KEY: z.string().min(1),
+    OPENAI_MODEL: z.string().min(1).default('gpt-4o-mini'),
 });
-export const config = configSchema.parse(configUnparsed);
+export const config = configSchema.parse(process.env);

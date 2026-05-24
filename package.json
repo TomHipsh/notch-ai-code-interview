@@ -1,0 +1,22 @@
+{
+  "name": "notch-ai-code-interview",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n backend,frontend -c cyan,magenta \"npm run dev --workspace @notch/backend\" \"npm run dev --workspace @notch/frontend\"",
+    "dev:backend": "npm run dev --workspace @notch/backend",
+    "dev:frontend": "npm run dev --workspace @notch/frontend",
+    "build": "npm run build --workspaces",
+    "build:backend": "npm run build --workspace @notch/backend",
+    "build:frontend": "npm run build --workspace @notch/frontend",
+    "start": "npm run start --workspace @notch/backend",
+    "lint": "npm run lint --workspace @notch/frontend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
